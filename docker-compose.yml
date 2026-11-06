@@ -1,0 +1,90 @@
+version: '3.9'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:14-alpine
+    container_name: zipship-db
+    environment:
+      POSTGRES_USER: cartuser
+      POSTGRES_PASSWORD: cartpassword
+      POSTGRES_DB: cart_checkout_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cartuser -d cart_checkout_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - zipship-network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: zipship-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://cartuser:cartpassword@db:5432/cart_checkout_db
+      JWT_SECRET: your-secret-key-change-in-production
+      JWT_ALGORITHM: HS256
+      TOKEN_EXPIRE_MINUTES: 30
+      STRIPE_API_KEY: sk_test_...
+      STRIPE_WEBHOOK_SECRET: whsec_test_...
+      DEBUG: "true"
+      ENVIRONMENT: development
+      APP_NAME: ZipShip - Express Shopping Cart API
+      API_PREFIX: /api/v1
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    command: uvicorn src.app:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - zipship-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Frontend (Placeholder - to be implemented)
+  frontend:
+    image: node:18-alpine
+    container_name: zipship-frontend
+    working_dir: /app
+    environment:
+      REACT_APP_API_URL: http://localhost:8000/api/v1
+      NODE_ENV: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm start
+    depends_on:
+      - backend
+    networks:
+      - zipship-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  zipship-network:
+    driver: bridge
